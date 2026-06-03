@@ -1,0 +1,37 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devPath": "../web",
+    "distDir": "../web",
+    "withGlobalTauri": true
+  },
+  "package": {
+    "productName": "EBCDIC Viewer",
+    "version": "2.0.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "dialog": { "open": true },
+      "fs": { "readFile": true, "scope": ["**"] }
+    },
+    "bundle": {
+      "active": true,
+      "identifier": "com.ebcdic-viewer",
+      "icon": ["icons/icon.icns"]
+    },
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "title": "EBCDIC Viewer",
+        "width": 1320,
+        "height": 860,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+# Rust / Cargo
+src-tauri/target/
+
+# macOS
+.DS_Store
