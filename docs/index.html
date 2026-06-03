@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EBCDIC Viewer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:   #2563eb;
+      --dark:   #1c1d21;
+      --mid:    #6b7079;
+      --light:  #f3f4f6;
+      --border: #e3e5e9;
+      --white:  #ffffff;
+      --mono:   "SF Mono", "JetBrains Mono", "Menlo", monospace;
+      --sans:   -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+    }
+
+    body {
+      font-family: var(--sans);
+      color: var(--dark);
+      background: var(--white);
+      line-height: 1.6;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      background: var(--dark);
+      color: var(--white);
+      text-align: center;
+      padding: 72px 24px 64px;
+    }
+    .hero-tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: #7aa7ff;
+      margin-bottom: 16px;
+    }
+    .hero h1 {
+      font-size: clamp(32px, 6vw, 52px);
+      font-weight: 700;
+      letter-spacing: -.02em;
+      margin-bottom: 16px;
+    }
+    .hero p {
+      font-size: 18px;
+      color: #9097a0;
+      max-width: 480px;
+      margin: 0 auto 36px;
+    }
+    .btn-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-block;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: opacity .15s;
+    }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-secondary { background: #26282d; color: #e8eaee; border: 1px solid #34373d; }
+
+    /* ── Section ── */
+    section { padding: 64px 24px; max-width: 900px; margin: 0 auto; }
+    section + section { border-top: 1px solid var(--border); }
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--blue);
+      margin-bottom: 8px;
+    }
+    h2 { font-size: 26px; font-weight: 700; margin-bottom: 32px; }
+
+    /* ── Steps ── */
+    .steps { display: grid; gap: 16px; }
+    .step {
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      gap: 16px;
+      align-items: start;
+      padding: 20px;
+      background: var(--light);
+      border-radius: 10px;
+    }
+    .step-num {
+      width: 40px; height: 40px;
+      background: var(--blue);
+      color: #fff;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .step h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .step p  { font-size: 13px; color: var(--mid); }
+    code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: #e8eaee;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    /* ── Features grid ── */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    .feature {
+      padding: 20px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .feature-icon { font-size: 24px; margin-bottom: 10px; }
+    .feature h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+    .feature p  { font-size: 13px; color: var(--mid); }
+
+    /* ── UI anatomy ── */
+    .anatomy {
+      background: var(--light);
+      border-radius: 12px;
+      padding: 28px;
+    }
+    .anatomy-img {
+      width: 100%;
+      background: var(--dark);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 24px;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+    /* Fake app chrome */
+    .chrome-bar {
+      background: #26282d;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid #34373d;
+      flex-wrap: wrap;
+    }
+    .chrome-title { font-size: 12px; font-weight: 700; color: #e8eaee; }
+    .chrome-label { font-size: 10px; color: #5d626a; text-transform: uppercase; letter-spacing: .07em; }
+    .chrome-val   { font-size: 11px; color: #9097a0; font-family: var(--mono); }
+    .chrome-pill  {
+      padding: 2px 8px; border-radius: 4px;
+      font-size: 10px; font-weight: 700;
+      background: var(--blue); color: #fff; font-family: var(--sans);
+      margin-left: auto;
+    }
+    .chrome-seg {
+      display: flex; border-radius: 5px; overflow: hidden;
+      border: 1px solid #34373d;
+    }
+    .chrome-seg span {
+      padding: 3px 10px; font-size: 10px; color: #9097a0; font-family: var(--sans);
+    }
+    .chrome-seg span.active { background: #e8eaee; color: #1c1d21; font-weight: 600; }
+
+    .app-body {
+      display: grid;
+      grid-template-columns: 160px 1fr 1fr;
+      min-height: 160px;
+    }
+    .pane-sidebar {
+      background: #1f2125; border-right: 1px solid #2c2f35;
+      padding: 10px 0;
+    }
+    .pane-sidebar .pane-title {
+      font-size: 9px; font-weight: 700; color: #5d626a;
+      text-transform: uppercase; letter-spacing: .08em;
+      padding: 8px 12px 4px;
+    }
+    .pane-sidebar .file-row {
+      padding: 4px 10px; font-size: 11px; color: #9097a0;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .pane-sidebar .file-row.active { color: #7aa7ff; background: #1d2640; border-radius: 4px; margin: 0 4px; }
+    .pane-layout {
+      border-right: 1px solid #2c2f35;
+      padding: 0;
+    }
+    .pane-header {
+      background: #1f2125;
+      padding: 8px 12px;
+      font-size: 10px; color: #5d626a;
+      border-bottom: 1px solid #2c2f35;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .pane-header strong { color: #e8eaee; }
+    .field-row {
+      display: grid;
+      grid-template-columns: 30px 30px 1fr 80px;
+      gap: 6px;
+      padding: 6px 12px;
+      font-size: 10px;
+      border-bottom: 1px solid #2c2f35;
+      align-items: center;
+    }
+    .field-row.active { background: #1d2640; border-left: 2px solid var(--blue); }
+    .field-row .off { color: #5d626a; }
+    .field-row .name { color: #e8eaee; font-weight: 600; }
+    .field-row .type { color: #7aa7ff; }
+    .field-row .val  { color: #e8eaee; }
+    .pane-hex { padding: 8px 12px; }
+    .hex-row {
+      font-size: 10px; color: #9097a0;
+      display: flex; gap: 8px; margin-bottom: 3px;
+    }
+    .hex-row .addr { color: #5d626a; width: 50px; }
+    .hex-row .bytes { color: #e8eaee; }
+    .hex-row .hi { background: #1d2640; color: #7aa7ff; padding: 0 2px; border-radius: 2px; }
+
+    .callouts { display: grid; gap: 10px; }
+    .callout {
+      display: grid;
+      grid-template-columns: 20px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+    .callout-num {
+      width: 20px; height: 20px;
+      background: var(--blue); color: #fff;
+      border-radius: 50%; font-size: 10px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 2px;
+    }
+    .callout p { font-size: 13px; color: var(--mid); }
+    .callout strong { color: var(--dark); }
+
+    /* ── Toggles ── */
+    .toggles { display: grid; gap: 12px; }
+    .toggle-item {
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      gap: 16px;
+      align-items: center;
+      padding: 16px;
+      background: var(--light);
+      border-radius: 10px;
+    }
+    .toggle-badge {
+      text-align: center;
+      font-size: 11px; font-weight: 700;
+      padding: 6px 0;
+      border-radius: 6px;
+      font-family: var(--mono);
+    }
+    .toggle-badge.blue { background: var(--blue); color: #fff; }
+    .toggle-badge.gray { background: #dde0e5; color: var(--dark); }
+    .toggle-item h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .toggle-item p  { font-size: 13px; color: var(--mid); }
+
+    /* ── Install ── */
+    .install-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .install-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+    .install-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+    .install-card ol, .install-card ul {
+      padding-left: 18px;
+      font-size: 13px;
+      color: var(--mid);
+      display: grid;
+      gap: 6px;
+    }
+    .install-card li { color: var(--mid); }
+    .install-card li strong { color: var(--dark); }
+    pre {
+      background: var(--dark);
+      color: #7aa7ff;
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 12px 14px;
+      border-radius: 6px;
+      margin-top: 10px;
+      overflow-x: auto;
+    }
+    .note {
+      font-size: 12px;
+      color: var(--mid);
+      background: #fff8e1;
+      border-left: 3px solid #f59e0b;
+      padding: 8px 12px;
+      border-radius: 0 6px 6px 0;
+      margin-top: 10px;
+    }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      padding: 40px 24px;
+      font-size: 13px;
+      color: var(--mid);
+      border-top: 1px solid var(--border);
+    }
+    footer a { color: var(--blue); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<!-- ── Hero ──────────────────────────────────────────────── -->
+<div class="hero">
+  <div class="hero-tag">Mainframe Tools</div>
+  <h1>EBCDIC Viewer</h1>
+  <p>Open any mainframe EBCDIC file and instantly see its records, hex data, and field layout.</p>
+  <div class="btn-row">
+    <a class="btn btn-primary"
+       href="https://github.com/ramkumarsun-group/EBCDICRust/releases/latest">
+      Download
+    </a>
+    <a class="btn btn-secondary"
+       href="https://github.com/ramkumarsun-group/EBCDICRust">
+      GitHub
+    </a>
+  </div>
+</div>
+
+<!-- ── Getting Started ───────────────────────────────────── -->
+<section>
+  <div class="section-label">Getting started</div>
+  <h2>Three steps to read any EBCDIC file</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div>
+        <h3>Open a data file</h3>
+        <p>Click <strong>+ Open</strong> next to <em>Data Files</em> in the sidebar. Pick any <code>.dat</code>, <code>.bin</code>, or raw mainframe file.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div>
+        <h3>Load a copybook</h3>
+        <p>Click <strong>+ Open</strong> next to <em>Copybooks</em>. Pick the matching <code>.cpy</code> or <code>.cob</code> file. The app parses it and auto-binds it to your data file.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div>
+        <h3>Navigate records</h3>
+        <p>Use the <strong>◀ ▶</strong> arrows in the toolbar to step through records one by one. Each record shows its decoded field values on the left and raw hex bytes on the right.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── UI Anatomy ─────────────────────────────────────────── -->
+<section>
+  <div class="section-label">The interface</div>
+  <h2>What you're looking at</h2>
+  <div class="anatomy">
+    <!-- Fake app screenshot -->
+    <div class="anatomy-img">
+      <div class="chrome-bar">
+        <span class="chrome-title">EBCDIC Viewer</span>
+        <span style="width:1px;height:16px;background:#34373d;flex-shrink:0"></span>
+        <span class="chrome-label">Data File:</span>
+        <span class="chrome-val">COMPANIES.dat</span>
+        <span style="width:1px;height:16px;background:#34373d;flex-shrink:0"></span>
+        <span class="chrome-label">Copy Book:</span>
+        <span class="chrome-val">COMPANIES.cpy</span>
+        <span class="chrome-pill">VB</span>
+        <div class="chrome-seg">
+          <span class="active">Records</span>
+          <span>Raw file</span>
+        </div>
+        <span style="font-size:10px;color:#5d626a;font-family:var(--sans)">Record 1 / 1019 ▶</span>
+      </div>
+      <div class="app-body">
+        <div class="pane-sidebar">
+          <div class="pane-title">Data Files</div>
+          <div class="file-row active">📄 COMPANIES.dat</div>
+          <div class="file-row">📄 EMPLOYEE.DAT</div>
+          <div class="pane-title" style="margin-top:8px">Copybooks</div>
+          <div class="file-row active">📄 COMPANIES.cpy</div>
+          <div class="file-row">📄 EMPLOYEE.cpy</div>
+        </div>
+        <div class="pane-layout">
+          <div class="pane-header">
+            📁 <strong>Record layout</strong>&nbsp; COMPANY-DETAILS 64 bytes
+          </div>
+          <div class="field-row" style="color:#5d626a;font-size:9px;text-transform:uppercase;letter-spacing:.06em;">
+            <span>Off</span><span>Len</span><span>Field</span><span>Value</span>
+          </div>
+          <div class="field-row active">
+            <span class="off">0</span><span class="off">5</span>
+            <span class="name">SEGMENT-ID</span>
+            <span class="val">"C"</span>
+          </div>
+          <div class="field-row">
+            <span class="off">5</span><span class="off">10</span>
+            <span class="name">COMPANY-ID</span>
+            <span class="val">"9377942526"</span>
+          </div>
+          <div class="field-row">
+            <span class="off">15</span><span class="off">15</span>
+            <span class="name">COMPANY-NAME</span>
+            <span class="val">"Joan Q &amp; Z"</span>
+          </div>
+          <div class="field-row">
+            <span class="off">30</span><span class="off">25</span>
+            <span class="name">ADDRESS</span>
+            <span class="val">"10 Sandton..."</span>
+          </div>
+        </div>
+        <div class="pane-hex">
+          <div class="pane-header" style="margin: -8px -12px 8px;padding:8px 12px;">
+            ⬡ <strong>Hex</strong>&nbsp; CP-037 64 bytes 16/row
+          </div>
+          <div class="hex-row">
+            <span class="addr">00000040</span>
+            <span class="bytes"><span class="hi">00 00 40 00 C3</span> 00 00 00 00 F9</span>
+          </div>
+          <div class="hex-row">
+            <span class="addr">00000050</span>
+            <span class="bytes">F3 F7 F7 F9 F4 F2 D1 96 81 95</span>
+          </div>
+          <div class="hex-row">
+            <span class="addr">00000060</span>
+            <span class="bytes">40 D8 40 50 40 E9 00 F1 F0 40</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Callouts -->
+    <div class="callouts">
+      <div class="callout">
+        <div class="callout-num">A</div>
+        <p><strong>Title bar</strong> — shows the active data file and copybook. The <strong>VB/FB</strong> pill switches between Variable-Blocked and Fixed-Blocked record formats. <strong>Records / Raw file</strong> toggles the view mode.</p>
+      </div>
+      <div class="callout">
+        <div class="callout-num">B</div>
+        <p><strong>Sidebar</strong> — lists all open files and loaded copybooks. Click a copybook to bind it to the selected file. Hover a file to reveal the <strong>×</strong> close button.</p>
+      </div>
+      <div class="callout">
+        <div class="callout-num">C</div>
+        <p><strong>Record layout pane</strong> — one row per COBOL field. Shows byte offset, length, field name, and decoded value for the current record. Click a row to highlight it in the hex view.</p>
+      </div>
+      <div class="callout">
+        <div class="callout-num">D</div>
+        <p><strong>Hex pane</strong> — raw bytes of the current record. Highlighted bytes correspond to the selected field. Click any byte to jump to its field.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Key Toggles ───────────────────────────────────────── -->
+<section>
+  <div class="section-label">Key controls</div>
+  <h2>Buttons you'll use often</h2>
+  <div class="toggles">
+    <div class="toggle-item">
+      <div class="toggle-badge blue">VB</div>
+      <div>
+        <h3>VB / FB toggle</h3>
+        <p>Switch between <strong>Variable-Blocked</strong> (each record has a 4-byte length prefix) and <strong>Fixed-Blocked</strong> (all records are the same length). The app auto-detects this on open — only flip it if records look misaligned.</p>
+      </div>
+    </div>
+    <div class="toggle-item">
+      <div class="toggle-badge gray">☑ REDEFINES</div>
+      <div>
+        <h3>Show REDEFINES</h3>
+        <p>Some copybooks define multiple layouts over the same bytes (e.g. a field that is either a string or a number depending on record type). Enable this to see all alternate field interpretations side by side, each colour-coded.</p>
+      </div>
+    </div>
+    <div class="toggle-item">
+      <div class="toggle-badge gray">Records</div>
+      <div>
+        <h3>Records vs Raw file</h3>
+        <p><strong>Records</strong> — navigate one record at a time with the ◀ ▶ arrows. Requires a copybook to be bound.<br/>
+        <strong>Raw file</strong> — shows the entire file decoded as EBCDIC text, one line per record. Useful for a quick visual scan.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ──────────────────────────────────────────── -->
+<section>
+  <div class="section-label">Features</div>
+  <h2>What the app can do</h2>
+  <div class="features">
+    <div class="feature">
+      <div class="feature-icon">📖</div>
+      <h3>COBOL copybook parser</h3>
+      <p>Drag in any <code>.cpy</code> or <code>.cob</code> file. Handles nested groups, REDEFINES, OCCURS, COMP, COMP-3, and both fixed and free format.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔢</div>
+      <h3>All numeric types</h3>
+      <p>Correctly decodes zoned decimal, packed decimal (COMP-3), and binary integers (COMP/BINARY) — not just text fields.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔀</div>
+      <h3>REDEFINES branches</h3>
+      <p>Toggle alternate field layouts for multi-segment files. Each branch gets its own colour so overlapping fields are easy to spot.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">📏</div>
+      <h3>VB / RDW detection</h3>
+      <p>Automatically detects IBM Variable-Blocked format (standard and cobrix-style RDW headers) so record boundaries are always correct.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🎨</div>
+      <h3>Light &amp; dark themes</h3>
+      <p>Switch themes, accent colour, bytes-per-row, and codepage (CP-037 / CP-1047) from the ⚙ settings menu.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">↔️</div>
+      <h3>Resizable panes</h3>
+      <p>Drag the divider between the record layout and hex panes. Drag column headers to resize individual columns.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── Install ───────────────────────────────────────────── -->
+<section>
+  <div class="section-label">Installation</div>
+  <h2>Get the app</h2>
+  <div class="install-grid">
+
+    <div class="install-card">
+      <h3>🍎 macOS — Homebrew <em style="font-size:11px;color:var(--blue);font-weight:400">(recommended)</em></h3>
+      <pre>brew tap ramkumarsun-group/tap
+brew install --cask ebcdic-viewer</pre>
+      <p style="font-size:12px;color:var(--mid);margin-top:8px">No download dialogs, no quarantine warnings. Works on Apple Silicon and Intel Macs.</p>
+    </div>
+
+    <div class="install-card">
+      <h3>🍎 macOS — Manual</h3>
+      <ol>
+        <li>Download <strong>EBCDIC.Viewer_2.0.0_universal.dmg</strong></li>
+        <li>Open the DMG and drag the app to Applications</li>
+        <li>Run in Terminal: <code>xattr -cr "/Applications/EBCDIC Viewer.app"</code></li>
+        <li>Double-click to open</li>
+      </ol>
+      <div class="note">The <code>xattr</code> step removes macOS's quarantine flag for unsigned apps.</div>
+    </div>
+
+    <div class="install-card">
+      <h3>🪟 Windows</h3>
+      <ol>
+        <li>Download <strong>EBCDIC.Viewer_2.0.0_x64-setup.exe</strong></li>
+        <li>Run the installer</li>
+        <li>If SmartScreen appears, click <strong>More info → Run anyway</strong></li>
+      </ol>
+      <div class="note">The SmartScreen warning appears because the app is not yet code-signed.</div>
+    </div>
+
+  </div>
+  <div style="text-align:center;margin-top:32px">
+    <a class="btn btn-primary"
+       href="https://github.com/ramkumarsun-group/EBCDICRust/releases/latest">
+      Download latest release →
+    </a>
+  </div>
+</section>
+
+<!-- ── Footer ────────────────────────────────────────────── -->
+<footer>
+  <p>EBCDIC Viewer is open source —
+    <a href="https://github.com/ramkumarsun-group/EBCDICRust">view on GitHub</a>
+  </p>
+</footer>
+
+</body>
+</html>
