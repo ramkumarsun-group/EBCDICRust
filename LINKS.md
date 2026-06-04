@@ -51,6 +51,12 @@ brew tap ramkumarsun-group/tap
 brew install --cask ebcdic-viewer
 ```
 
+## 📜 Legal
+| | |
+|---|---|
+| **Privacy Policy** | https://github.com/ramkumarsun-group/EBCDICRust/blob/main/PRIVACY_POLICY.md |
+| **License (MIT)** | https://github.com/ramkumarsun-group/EBCDICRust/blob/main/LICENSE |
+
 ## ⚙️ CI / Build
 | | |
 |---|---|
