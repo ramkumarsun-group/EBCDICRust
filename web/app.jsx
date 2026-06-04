@@ -70,6 +70,7 @@ function splitOnNewlines(bytes, codepage) {
   const CR = 0x0D;
   const LF = 0x0A;
   // Choose the NL byte for this codepage only; the other is treated as data.
+  // CP-1047 uses 0x15 as NL; all other EBCDIC code pages use 0x25
   const NL = (codepage === '1047') ? 0x15 : 0x25;
 
   // Quick scan
@@ -336,8 +337,16 @@ function App() {
           options={['#2563eb', '#dc2626', '#059669', '#d97706']}
           onChange={(v) => setTweak('accent', v)} />
         <TweakSection label="Hex view" />
-        <TweakRadio label="Code page" value={tw.codepage}
-          options={[{ value: '037', label: 'CP-037' }, { value: '1047', label: 'CP-1047' }]}
+        <TweakSelect label="Code page" value={tw.codepage}
+          options={[
+            { value: '037',  label: 'CP-037  (US/Canada)' },
+            { value: '1047', label: 'CP-1047 (Open Systems)' },
+            { value: '500',  label: 'CP-500  (International)' },
+            { value: '1140', label: 'CP-1140 (US/Canada + €)' },
+            { value: '273',  label: 'CP-273  (Germany/Austria)' },
+            { value: '285',  label: 'CP-285  (UK)' },
+            { value: '297',  label: 'CP-297  (France)' },
+          ]}
           onChange={(v) => setTweak('codepage', v)} />
         <TweakRadio label="Bytes / row" value={tw.bytesPerRow}
           options={[{ value: 8, label: '8' }, { value: 16, label: '16' }, { value: 24, label: '24' }]}
@@ -917,7 +926,7 @@ function ContentPane({ T, file, fileName, cb, cp, accent, crlfRecords }) {
   // each line is individually small, so layout cost is bounded by line count.
   const truncated = !crlfRecords && file.bytes.length > MAX_RAW_BYTES;
   const lines = useMemo(() => {
-    const table = cp === '1047' ? EBCDIC_1047 : EBCDIC_037;
+    const table = getTable(cp);
     // Non-printable bytes (0x00 nulls, control codes, padding inside packed/
     // binary fields) render as the mid-dot · so column structure stays visible.
     // The EBCDIC space 0x40 still decodes to a real ' ' because the lookup
