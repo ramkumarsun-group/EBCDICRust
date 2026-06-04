@@ -128,16 +128,38 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get current latest release tag
-          CURRENT=$(gh release list --repo ${{ github.repository }} --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
-          if [ -n "$CURRENT" ] && [ "$CURRENT" != "${{ steps.version.outputs.tag }}" ]; then
+          CURRENT=$(gh release list --repo ${{ github.repository }} --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+          NEW_TAG="${{ steps.version.outputs.tag }}"
+          if [ -n "$CURRENT" ] && [ "$CURRENT" != "$NEW_TAG" ]; then
             echo "Archiving previous release: $CURRENT"
+            OLD_TITLE=$(gh release view "$CURRENT" --repo ${{ github.repository }} --json name --jq '.name' 2>/dev/null || echo "$CURRENT")
             gh release edit "$CURRENT" \
               --repo ${{ github.repository }} \
               --prerelease \
-              --title "$(gh release view $CURRENT --repo ${{ github.repository }} --json name -q '.name') [Archived]" \
-              || echo "Could not archive previous release (may not exist)"
+              --title "${OLD_TITLE} [Archived]" \
+              || echo "Could not archive previous release"
           fi
+
+      - name: Write release notes
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          cat > release_notes.md << NOTES
+          ## EBCDIC Viewer v${VERSION}
+
+          ### Downloads
+          | Platform | File |
+          |----------|------|
+          | Windows (Installer) | EBCDIC.Viewer_${VERSION}_x64-setup.exe |
+          | Windows (MSI) | EBCDIC.Viewer_${VERSION}_x64_en-US.msi |
+          | macOS (Universal) | EBCDIC.Viewer_${VERSION}_universal.dmg |
+
+          ### Windows Note
+          If you see a SmartScreen warning, click **More info → Run anyway**.
+          The app is not yet code-signed.
+
+          ### macOS Note
+          After installing, run: xattr -cr "/Applications/EBCDIC Viewer.app"
+          NOTES
 
       - name: Create or update release
         env:
@@ -150,26 +172,12 @@ jobs:
           gh release delete "$TAG" --repo ${{ github.repository }} --yes 2>/dev/null || true
           git push origin ":refs/tags/$TAG" 2>/dev/null || true
 
-          # Gather all built files
-          FILES=$(find artifacts -type f | tr '\n' ' ')
+          # Gather all built files into an array
+          mapfile -t FILES < <(find artifacts -type f)
 
           gh release create "$TAG" \
             --repo ${{ github.repository }} \
-            --title "EBCDIC Viewer v$VERSION" \
+            --title "EBCDIC Viewer v${VERSION}" \
+            --notes-file release_notes.md \
             --latest \
-            --notes "## EBCDIC Viewer v$VERSION
-
-### Downloads
-| Platform | File |
-|----------|------|
-| Windows (Installer) | \`EBCDIC.Viewer_${VERSION}_x64-setup.exe\` |
-| Windows (MSI) | \`EBCDIC.Viewer_${VERSION}_x64_en-US.msi\` |
-| macOS (Universal) | \`EBCDIC.Viewer_${VERSION}_universal.dmg\` |
-
-### Windows Note
-If you see a SmartScreen warning, click **More info → Run anyway**.
-The app is not yet code-signed.
-
-### macOS Note
-After installing, run: \`xattr -cr \"/Applications/EBCDIC Viewer.app\"\`" \
-            $FILES
+            "${FILES[@]}"
