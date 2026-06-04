@@ -57,26 +57,21 @@ jobs:
       - name: Create MSIX package
         shell: pwsh
         run: |
-          # Read version from tauri.conf.json and make it 4-part
           $version3 = (Get-Content "src-tauri/tauri.conf.json" | ConvertFrom-Json).package.version
           $version4 = "$version3.0"
           $msixName = "EBCDIC.Viewer_${version3}_x64.msix"
 
-          # Create MSIX layout
           New-Item -ItemType Directory -Force -Path "msix_layout/Assets" | Out-Null
 
-          # Copy main executable and any DLLs
           Copy-Item "src-tauri/target/release/EBCDIC Viewer.exe" "msix_layout/EBCDIC Viewer.exe"
           Get-ChildItem "src-tauri/target/release/*.dll" -ErrorAction SilentlyContinue |
             Copy-Item -Destination "msix_layout/"
 
-          # Copy icons (already correct sizes)
           Copy-Item "src-tauri/icons/Square44x44Logo.png"   "msix_layout/Assets/Square44x44Logo.png"
           Copy-Item "src-tauri/icons/Square150x150Logo.png" "msix_layout/Assets/Square150x150Logo.png"
           Copy-Item "src-tauri/icons/Square310x310Logo.png" "msix_layout/Assets/Square310x310Logo.png"
           Copy-Item "src-tauri/icons/StoreLogo.png"         "msix_layout/Assets/StoreLogo.png"
 
-          # Generate Wide310x150Logo from Square310x310Logo using .NET
           Add-Type -AssemblyName System.Drawing
           $src  = [System.Drawing.Image]::FromFile((Resolve-Path "src-tauri/icons/Square310x310Logo.png"))
           $wide = New-Object System.Drawing.Bitmap(310, 150)
@@ -87,61 +82,16 @@ jobs:
                      [System.Drawing.Imaging.ImageFormat]::Png)
           $g.Dispose(); $src.Dispose(); $wide.Dispose()
 
-          # Write AppxManifest.xml
-          $manifest = @"
-<?xml version="1.0" encoding="utf-8"?>
-<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
-  <Identity Name="PSRVentures.EBCDICViewer"
-            Publisher="CN=E53C498B-BE26-4429-B6F3-E38F3830DC34"
-            Version="$version4"
-            ProcessorArchitecture="x64"/>
-  <Properties>
-    <DisplayName>EBCDIC Viewer</DisplayName>
-    <PublisherDisplayName>PSRVentures</PublisherDisplayName>
-    <Logo>Assets\StoreLogo.png</Logo>
-  </Properties>
-  <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop"
-                        MinVersion="10.0.17763.0"
-                        MaxVersionTested="10.0.22621.0"/>
-  </Dependencies>
-  <Resources>
-    <Resource Language="en-us"/>
-  </Resources>
-  <Applications>
-    <Application Id="EBCDICViewer"
-                 Executable="EBCDIC Viewer.exe"
-                 EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements DisplayName="EBCDIC Viewer"
-                          Description="View and decode IBM mainframe EBCDIC files"
-                          BackgroundColor="transparent"
-                          Square150x150Logo="Assets\Square150x150Logo.png"
-                          Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png"
-                         Square310x310Logo="Assets\Square310x310Logo.png"/>
-      </uap:VisualElements>
-    </Application>
-  </Applications>
-  <Capabilities>
-    <rescap:Capability Name="runFullTrust"/>
-  </Capabilities>
-</Package>
-"@
+          $manifest = (Get-Content "src-tauri/msix/AppxManifest.xml" -Raw) -replace "VERSION_PLACEHOLDER", $version4
           Set-Content "msix_layout/AppxManifest.xml" $manifest -Encoding UTF8
 
-          # Find makeappx.exe from Windows SDK
           $makeappx = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" `
             -Recurse -Filter "makeappx.exe" -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -match "x64" } |
             Sort-Object FullName -Descending |
             Select-Object -First 1
 
-          if (-not $makeappx) {
-            Write-Error "makeappx.exe not found in Windows SDK"
-            exit 1
-          }
+          if (-not $makeappx) { Write-Error "makeappx.exe not found"; exit 1 }
 
           Write-Host "Using: $($makeappx.FullName)"
           & $makeappx.FullName pack /d msix_layout /p $msixName /nv
