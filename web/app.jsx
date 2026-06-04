@@ -202,11 +202,17 @@ function App() {
   // aren't already in VB mode (both of those imply structured records).
   const crlfRecords = useMemo(() => splitOnNewlines(file.bytes, cp), [file, cp]);
 
+  // ODO spans: walk the whole file using dynamic record lengths derived from
+  // the control field value inside each record (e.g. NUMBER-OF-ACCTS).
+  // Only computed when the copybook has at least one ODO group.
+  const odoSpans = useMemo(() => {
+    if (!cb || !cb.odoGroups || cb.odoGroups.length === 0) return null;
+    return computeODOSpans(file.bytes, cb);
+  }, [file, cb]);
+
   // Effective record spans for navigation / record-mode display.
-  // Priority: RDW (when VB enabled) > CRLF auto-detect (when no cb) > none.
-  // When cb is bound and nothing else applies, we use the copybook's
-  // fixed record length below.
-  const effectiveRecords = rdwSpans || (cb ? null : crlfRecords);
+  // Priority: RDW (VB mode) > ODO dynamic > CRLF auto-detect > fixed-stride.
+  const effectiveRecords = rdwSpans || odoSpans || (cb ? null : crlfRecords);
   const currentSpan = effectiveRecords ? (effectiveRecords[recordIdx] ?? null) : null;
 
   const recordLen = currentSpan
@@ -675,50 +681,69 @@ function LayoutPane({ T, cb, recordBytes, cp, selField, setSelField, setHoverFie
           </label>
         )} />
 
-      {/* Column header row with drag handles on the right edge of each cell */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: gridCols,
-        padding: '0 14px', fontSize: 10, fontFamily: SANS, fontWeight: 600,
-        color: T.textFaint, letterSpacing: '0.06em', textTransform: 'uppercase',
-        borderBottom: `0.5px solid ${T.border}`, background: T.panelAlt,
-        userSelect: 'none',
-      }}>
-        {colLabels.map((label, ci) => (
-          <div key={ci} style={{ position: 'relative', padding: '6px 0', paddingRight: 8 }}>
-            {label}
-            {/* Drag handle — only on all-but-last column */}
-            {ci < colLabels.length - 1 && (
-              <div
-                onMouseDown={(e) => startColResize(ci, e)}
-                style={{
-                  position: 'absolute', right: 0, top: 0, bottom: 0,
-                  width: 6, cursor: 'col-resize',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <div style={{
-                  width: 1, height: '60%',
-                  background: T.borderStrong, borderRadius: 1,
-                }} />
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'scroll' }}>
+        <div style={{ minWidth: 'max-content' }}>
 
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {cb.fields.map((f, i) => {
-          // Hide variant rows when the toggle is off — keeps the original
-          // index space stable so byte clicks still resolve correctly.
+        {/* Column header — inside the scroll container so it scrolls
+            horizontally with the data; sticky so it stays pinned vertically. */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: gridCols,
+          padding: '0 14px', fontSize: 10, fontFamily: SANS, fontWeight: 600,
+          color: T.textFaint, letterSpacing: '0.06em', textTransform: 'uppercase',
+          borderBottom: `0.5px solid ${T.border}`, background: T.panelAlt,
+          userSelect: 'none', position: 'sticky', top: 0, zIndex: 1,
+        }}>
+          {colLabels.map((label, ci) => (
+            <div key={ci} style={{ position: 'relative', padding: '6px 0', paddingRight: 8 }}>
+              {label}
+              {ci < colLabels.length - 1 && (
+                <div
+                  onMouseDown={(e) => startColResize(ci, e)}
+                  style={{
+                    position: 'absolute', right: 0, top: 0, bottom: 0,
+                    width: 6, cursor: 'col-resize',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <div style={{ width: 1, height: '60%', background: T.borderStrong, borderRadius: 1 }} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        {/* Resolve ODO fields to only show occurrences that exist in this record */}
+        {resolveODOFields(cb, recordBytes).map((f) => {
+          const i = cb.fields.indexOf(f); // original index for selField/HexPane sync
+          // Hide variant rows when the toggle is off.
           if (f.variant && !showRedefines) return null;
+          // Occurrence separator for ODO groups
+          const showOccHeader = f.odoGroup !== undefined && f.occurrenceIndex >= 0
+            && cb.fields.indexOf(f) === cb.fields.findIndex(
+              x => x.odoGroup === f.odoGroup && x.occurrenceIndex === f.occurrenceIndex
+            );
           const slice = recordBytes.slice(f.offset, f.offset + f.length);
           const val = decodeField(slice, f);
           const isSel = i === selField;
           const isVariant = !!f.variant;
           const vIdx = isVariant ? variants.indexOf(f.variant) : -1;
           const vColor = isVariant ? variantColor(vIdx) : null;
+          const odoGroup = f.odoGroup !== undefined ? cb.odoGroups[f.odoGroup] : null;
           return (
-            <div key={i}
+            <React.Fragment key={i}>
+              {/* Occurrence separator header */}
+              {showOccHeader && odoGroup && (
+                <div style={{
+                  padding: '4px 14px',
+                  fontSize: 10, fontFamily: SANS, fontWeight: 700,
+                  letterSpacing: '0.07em', textTransform: 'uppercase',
+                  color: accent, background: accent + '0D',
+                  borderBottom: `0.5px solid ${accent}33`,
+                  borderTop: f.occurrenceIndex > 0 ? `1px solid ${accent}44` : 'none',
+                }}>
+                  {odoGroup.groupName} #{f.occurrenceIndex + 1}
+                </div>
+              )}
+            <div key={`f-${i}`}
               onClick={() => setSelField(i)}
               onMouseEnter={() => setHoverField(i)}
               onMouseLeave={() => setHoverField(null)}
@@ -765,6 +790,7 @@ function LayoutPane({ T, cb, recordBytes, cp, selField, setSelField, setHoverFie
                   (f.type.includes('X') ? `"${val}"` : val)}
               </div>
             </div>
+            </React.Fragment>
           );
         })}
         {showRedefines && variants.length > 0 && (
@@ -787,6 +813,7 @@ function LayoutPane({ T, cb, recordBytes, cp, selField, setSelField, setHoverFie
             ))}
           </div>
         )}
+        </div>{/* end minWidth:max-content */}
       </div>
 
       {copybookHeight > 0 && (
@@ -922,7 +949,7 @@ function ContentPane({ T, file, fileName, cb, cp, accent, crlfRecords }) {
   }, [file, cp, wrap, crlfRecords]);
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: T.hexBg }}>
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: T.hexBg }}>
       <PaneHeader T={T}
         icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke={T.textDim} strokeWidth="1.5"><path d="M3 2.5h7l3 3v8h-10z M10 2.5v3h3 M5 8h6 M5 10.5h6 M5 5.5h3"/></svg>}
         title="Content"
@@ -933,7 +960,13 @@ function ContentPane({ T, file, fileName, cb, cp, accent, crlfRecords }) {
             : `wrap @ ${wrap}${cb ? ' (record length)' : ' chars'}`}
         </span>}
       />
-      <div style={{ flex: 1, overflow: 'auto', padding: '12px 0' }}>
+      {/* overflowX: scroll forces the horizontal scrollbar to always be
+          visible on macOS (which hides overlay scrollbars by default). */}
+      <div style={{
+        flex: 1, minWidth: 0, minHeight: 0,
+        overflowY: 'auto', overflowX: 'scroll',
+        padding: '12px 0',
+      }}>
         <div style={{ minWidth: 'max-content' }}>
           {lines.map((ln, i) => {
             const isRecordStart = cb && (ln.offset % cb.recordLength === 0);
@@ -960,7 +993,7 @@ function ContentPane({ T, file, fileName, cb, cp, accent, crlfRecords }) {
         background: T.panelAlt, fontSize: 11, color: T.textFaint, fontFamily: MONO,
         display: 'flex', gap: 16,
       }}>
-        <span>EBCDIC  text  non-printable bytes shown as space</span>
+        <span>EBCDIC  text  non-printable bytes shown as ·</span>
         <div style={{ flex: 1 }} />
         {truncated && <span style={{ color: accent }}>showing first {MAX_RAW_BYTES / 1024} KB of {file.bytes.length.toLocaleString()} B</span>}
         {crlfRecords && <span style={{ color: accent }}>split on CR/LF  {crlfRecords.length} lines</span>}

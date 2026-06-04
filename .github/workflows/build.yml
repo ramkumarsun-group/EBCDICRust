@@ -1,9 +1,12 @@
-name: Build
+name: Build & Release
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   # ── Windows ─────────────────────────────────────────────────────────
@@ -37,22 +40,22 @@ jobs:
       - name: Build Tauri app (Windows)
         run: cargo tauri build
 
-      - name: Upload MSI installer
+      - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: EBCDIC-Viewer-Windows-msi
+          name: windows-msi
           path: src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: warn
 
-      - name: Upload NSIS installer (.exe)
+      - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: EBCDIC-Viewer-Windows-exe
+          name: windows-exe
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: warn
 
-  # ── macOS Universal Binary (Apple Silicon + Intel in one DMG) ────────
-  build-macos-universal:
+  # ── macOS Universal Binary ───────────────────────────────────────────
+  build-macos:
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -84,9 +87,89 @@ jobs:
       - name: Build Universal Binary
         run: cargo tauri build --target universal-apple-darwin
 
-      - name: Upload Universal DMG
+      - name: Upload Universal DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: EBCDIC-Viewer-macOS-universal-dmg
+          name: macos-universal-dmg
           path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: warn
+
+      - name: Upload aarch64 DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-aarch64-dmg
+          path: src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+
+  # ── Publish Release ──────────────────────────────────────────────────
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version from tauri.conf.json
+        id: version
+        run: |
+          VERSION=$(jq -r '.package.version' src-tauri/tauri.conf.json)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f
+
+      - name: Archive previous latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get current latest release tag
+          CURRENT=$(gh release list --repo ${{ github.repository }} --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
+          if [ -n "$CURRENT" ] && [ "$CURRENT" != "${{ steps.version.outputs.tag }}" ]; then
+            echo "Archiving previous release: $CURRENT"
+            gh release edit "$CURRENT" \
+              --repo ${{ github.repository }} \
+              --prerelease \
+              --title "$(gh release view $CURRENT --repo ${{ github.repository }} --json name -q '.name') [Archived]" \
+              || echo "Could not archive previous release (may not exist)"
+          fi
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Delete existing release with this tag if it exists
+          gh release delete "$TAG" --repo ${{ github.repository }} --yes 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
+          # Gather all built files
+          FILES=$(find artifacts -type f | tr '\n' ' ')
+
+          gh release create "$TAG" \
+            --repo ${{ github.repository }} \
+            --title "EBCDIC Viewer v$VERSION" \
+            --latest \
+            --notes "## EBCDIC Viewer v$VERSION
+
+### Downloads
+| Platform | File |
+|----------|------|
+| Windows (Installer) | \`EBCDIC.Viewer_${VERSION}_x64-setup.exe\` |
+| Windows (MSI) | \`EBCDIC.Viewer_${VERSION}_x64_en-US.msi\` |
+| macOS (Universal) | \`EBCDIC.Viewer_${VERSION}_universal.dmg\` |
+
+### Windows Note
+If you see a SmartScreen warning, click **More info → Run anyway**.
+The app is not yet code-signed.
+
+### macOS Note
+After installing, run: \`xattr -cr \"/Applications/EBCDIC Viewer.app\"\`" \
+            $FILES
