@@ -31,4 +31,4 @@ If this policy changes in the future, the updated version will be posted at this
 For questions, open an issue at:
 https://github.com/ramkumarsun-group/EBCDICRust/issues
 
-Or email: ramkumar.sundaram@gmail.com
+Or email: ramkumar.sun@gmail.com
