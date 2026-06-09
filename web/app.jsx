@@ -142,6 +142,10 @@ function App() {
   const [layoutWidth, setLayoutWidth] = useState(540);
   const [copybookHeight, setCopybookHeight] = useState(170);
   const [showRedefines, setShowRedefines] = useState(false);
+  // Rust-decoded field values for the current record: [{ name, value, hex }]
+  const [decodedFields, setDecodedFields] = useState({});
+  // Rust-decoded hex rows for the current view: { offset -> { hex[], ebcdic[], ascii[] } }
+  const [rustHexRows, setRustHexRows] = useState([]);
 
   const startResize = useCallback((e) => {
     e.preventDefault();
@@ -194,10 +198,8 @@ function App() {
   // IBM Variable-Blocked (VB) record spans, parsed from the per-record
   // 4-byte RDW headers. Only computed when the per-file recordFormat flag
   // is 'VB' (toggled by the user from the title bar).
-  const rdwSpans = useMemo(() => {
-    if (file.recordFormat !== 'VB') return null;
-    return parseRDWRecords(file.bytes);
-  }, [file]);
+  // RDW spans are computed by Rust when the file is opened and stored on the file object.
+  const rdwSpans = (file.recordFormat === 'VB') ? (file.rdwSpans || null) : null;
 
   // CRLF auto-detection only kicks in when no copybook is bound and we
   // aren't already in VB mode (both of those imply structured records).
@@ -273,21 +275,42 @@ function App() {
     setSelOffset(null);
   }, [fileName]);
 
+  // ── Rust: decode all fields for the current record ──────────────────────────
+  React.useEffect(() => {
+    if (!cb || !file.b64) { setDecodedFields({}); return; }
+    const rec = files[fileName];
+    if (!rec) return;
+    const recBytes = rec.bytes ? rec.bytes.slice(
+      recordIdx * (cb.recordLength || 0),
+      (recordIdx + 1) * (cb.recordLength || 0)
+    ) : null;
+    if (!recBytes || recBytes.length === 0) return;
+    // base64 encode the record slice
+    const b64Rec = btoa(String.fromCharCode(...recBytes));
+    window.__TAURI__.invoke('decode_fields', {
+      b64Record: b64Rec,
+      fields: cb.fields,
+      codepage: cp,
+    }).then(vals => {
+      const map = {};
+      vals.forEach(v => { map[v.name + ':' + (cb.fields.find(f => f.name === v.name)?.offset ?? 0)] = v.value; });
+      setDecodedFields(map);
+    }).catch(() => setDecodedFields({}));
+  }, [fileName, recordIdx, cp, cb]);
+
   const openFile = useCallback(async () => {
     const res = await window.__TAURI__.invoke('open_file');
     if (!res) return;
     const bytes = b64ToBytes(res.b64);
 
-    // Auto-detect Variable-Blocked format. If the file's prefix bytes parse
-    // cleanly as RDW records consuming essentially the whole file, default
-    // the format to VB. Otherwise leave as FB. The user can still flip the
-    // FB/VB toggle in the title bar after the fact.
-    const detected = parseRDWRecords(bytes);
-    const recordFormat = (detected && detected.length > 1) ? 'VB' : null;
+    // Auto-detect Variable-Blocked format via Rust RDW parser.
+    const rdwSpans = await window.__TAURI__.invoke('detect_rdw_records', { b64: res.b64 });
+    const recordFormat = (rdwSpans && rdwSpans.length > 1) ? 'VB' : null;
 
     setFiles((prev) => ({
       ...prev,
-      [res.name]: { copybook: null, bytes, recordFormat },
+      [res.name]: { copybook: null, bytes, b64: res.b64, recordFormat,
+                    rdwSpans: recordFormat === 'VB' ? rdwSpans : null },
     }));
     setFileName(res.name);
   }, []);
@@ -297,7 +320,9 @@ function App() {
     if (!res) return;
     let parsed;
     try {
-      parsed = parseCopybook(res.text, res.name);
+      parsed = await window.__TAURI__.invoke('parse_copybook_text', {
+        text: res.text, fallbackName: res.name,
+      });
     } catch (e) {
       alert('Could not parse copybook:\n' + (e && e.message ? e.message : String(e)));
       return;
@@ -374,6 +399,7 @@ function App() {
                         hasRedefines={hasRedefines}
                         selField={selField} setSelField={setSelField}
                         setHoverField={setHoverField} accent={accent}
+                        decodedFields={decodedFields}
                         selOffset={selOffset !== null ? selOffset - viewBase : null} />}
             {cb && <Resizer T={T} onMouseDown={startResize} accent={accent} />}
             <HexPane T={T} bytes={viewBytes} cp={cp} bpr={bpr}
@@ -617,7 +643,7 @@ function Sidebar({ T, files, fileName, setFileName, cbName, accent, onBindCopybo
 // ─────────────────────────────────────────────────────────────
 // Layout (copybook) pane
 // ─────────────────────────────────────────────────────────────
-function LayoutPane({ T, cb, recordBytes, cp, selField, setSelField, setHoverField, accent, selOffset, width = 540, copybookHeight = 170, onCopybookResizeStart, showRedefines = false, setShowRedefines, hasRedefines = false }) {
+function LayoutPane({ T, cb, recordBytes, cp, selField, setSelField, setHoverField, accent, selOffset, width = 540, copybookHeight = 170, onCopybookResizeStart, showRedefines = false, setShowRedefines, hasRedefines = false, decodedFields = {} }) {
   if (!cb) return null;
 
   // Column widths: [Off, Len, Field, Type, Value]
@@ -731,7 +757,9 @@ function LayoutPane({ T, cb, recordBytes, cp, selField, setSelField, setHoverFie
               x => x.odoGroup === f.odoGroup && x.occurrenceIndex === f.occurrenceIndex
             );
           const slice = recordBytes.slice(f.offset, f.offset + f.length);
-          const val = decodeField(slice, f);
+          // Use Rust-decoded value if available, fall back to JS decoder
+          const rustVal = decodedFields[f.name + ':' + f.offset];
+          const val = rustVal !== undefined ? rustVal : decodeField(slice, f);
           const isSel = i === selField;
           const isVariant = !!f.variant;
           const vIdx = isVariant ? variants.indexOf(f.variant) : -1;
